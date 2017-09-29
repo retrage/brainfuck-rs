@@ -5,6 +5,39 @@ use std::path::Path;
 use std::io::Read;
 use std::process;
 
+fn compute_jumptable(code: &Vec<u8>) -> Vec<u64> {
+    let mut ptr = 0;
+    let mut jumptable = vec![0 as u64; code.len()];
+    let mut bracket_nesting =  0;
+    let mut seek = ptr;
+
+    while ptr < code.len() {
+        if code[ptr] == '[' as u8 {
+            bracket_nesting = 1;
+            seek = ptr;
+
+            while bracket_nesting != 0 && (seek+1 < code.len()) {
+                seek += 1;
+                if code[seek] == ']' as u8 {
+                    bracket_nesting -= 1;
+                } else if code[seek] == '[' as u8 {
+                    bracket_nesting += 1;
+                }
+            }
+
+            if bracket_nesting == 0 {
+                jumptable[ptr] = seek as u64;
+                jumptable[seek] = ptr as u64;
+            } else {
+                panic!("Unmatched '[': ptr={}", ptr);
+            }
+        }
+        ptr += 1;
+    }
+
+    jumptable
+}
+
 fn input() -> u8 {
     let c = match std::io::stdin().bytes().next()
                 .and_then(|result| result.ok()).map(|byte| byte as u8) {
@@ -40,6 +73,7 @@ fn main() {
     let mut data_ptr: usize = 0;
     let code = s.into_bytes();
     let mut data = [0 as u8; 30000];
+    let jumptable = compute_jumptable(&code);
 
     while code_ptr < code.len() {
         let c = code[code_ptr];
@@ -52,22 +86,12 @@ fn main() {
             ',' => data[data_ptr] = input(),
             '[' => {
                 if data[data_ptr] == 0 {
-                    let mut count = 1;
-                    while count != 0 {
-                        code_ptr += 1;
-                        if code[code_ptr] == '[' as u8 { count += 1; }
-                        if code[code_ptr] == ']' as u8 { count -= 1; }
-                    }
+                    code_ptr = jumptable[code_ptr] as usize;
                 }
             },
             ']' => {
                 if data[data_ptr] != 0 {
-                    let mut count = 1;
-                    while count != 0 {
-                        code_ptr -= 1;
-                        if code[code_ptr] == ']' as u8 { count += 1; }
-                        if code[code_ptr] == '[' as u8 { count -= 1; }
-                    }
+                    code_ptr = jumptable[code_ptr] as usize;
                 }
             },
             _ => {},
