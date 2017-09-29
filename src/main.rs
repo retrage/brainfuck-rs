@@ -5,37 +5,88 @@ use std::path::Path;
 use std::io::Read;
 use std::process;
 
-fn compute_jumptable(code: &Vec<u8>) -> Vec<u64> {
+enum BfOpKind {
+    InvalidOp,
+    IncPtr,
+    DecPtr,
+    IncData,
+    DecData,
+    ReadStdin,
+    WriteStdout,
+    JumpIfDataZero,
+    JumpIfDataNotZero,
+}
+
+#[allow(dead_code)]
+fn bf_op_kind_name(kind: BfOpKind) -> char {
+    match kind {
+        BfOpKind::IncPtr => return '>',
+        BfOpKind::DecPtr => return '<',
+        BfOpKind::IncData => return '+',
+        BfOpKind::DecData => return '-',
+        BfOpKind::ReadStdin => return ',',
+        BfOpKind::WriteStdout => return '.',
+        BfOpKind::JumpIfDataZero => return '[',
+        BfOpKind::JumpIfDataNotZero => return ']',
+        BfOpKind::InvalidOp => return 'x',
+    }
+}
+
+struct BfOp {
+    kind: BfOpKind,
+    argument: u64,
+}
+
+fn translate_code(code: &Vec<u8>) -> Vec<BfOp> {
     let mut ptr = 0;
-    let mut jumptable = vec![0 as u64; code.len()];
-    let mut bracket_nesting =  0;
-    let mut seek = ptr;
+    let code_size = code.len();
+    let mut ops =  Vec::new();
+    let mut open_bracket_stack = Vec::new();
 
-    while ptr < code.len() {
-        if code[ptr] == '[' as u8 {
-            bracket_nesting = 1;
-            seek = ptr;
+    while ptr < code_size {
+        let instruction = code[ptr];
+        if instruction == '[' as u8 {
+            open_bracket_stack.push(ops.len() as u64);
+            ops.push(BfOp{ kind: BfOpKind::JumpIfDataZero,
+                            argument: 0 });
+            ptr += 1;
+        } else if instruction == ']' as u8 {
+            if open_bracket_stack.is_empty() {
+                panic!("Unmatch closing ']': ptr={}", ptr);
+            }
+            let open_bracket_offset =
+                    open_bracket_stack[open_bracket_stack.len()-1];
+            open_bracket_stack.pop();
 
-            while bracket_nesting != 0 && (seek+1 < code.len()) {
-                seek += 1;
-                if code[seek] == ']' as u8 {
-                    bracket_nesting -= 1;
-                } else if code[seek] == '[' as u8 {
-                    bracket_nesting += 1;
-                }
+            ops[open_bracket_offset as usize].argument = ops.len() as u64;
+            ops.push(BfOp{ kind:BfOpKind::JumpIfDataNotZero, 
+                            argument: open_bracket_offset });
+            ptr += 1;
+        } else {
+            let start = ptr;
+            ptr += 1;
+            while ptr < code_size && code[ptr] == instruction {
+                ptr += 1;
             }
 
-            if bracket_nesting == 0 {
-                jumptable[ptr] = seek as u64;
-                jumptable[seek] = ptr as u64;
-            } else {
-                panic!("Unmatched '[': ptr={}", ptr);
+            let num_repeats = ptr - start;
+
+            let mut kind = BfOpKind::InvalidOp;
+            match instruction as char {
+                '>' => kind = BfOpKind::IncPtr,
+                '<' => kind = BfOpKind::DecPtr,
+                '+' => kind = BfOpKind::IncData,
+                '-' => kind = BfOpKind::DecData,
+                ',' => kind = BfOpKind::ReadStdin,
+                '.' => kind = BfOpKind::WriteStdout,
+                _ => {}
             }
+
+            ops.push(BfOp{ kind: kind, argument: num_repeats as u64 });
         }
-        ptr += 1;
     }
 
-    jumptable
+    ops
 }
 
 fn input() -> u8 {
@@ -73,25 +124,35 @@ fn main() {
     let mut data_ptr: usize = 0;
     let code = s.into_bytes();
     let mut data = [0 as u8; 30000];
-    let jumptable = compute_jumptable(&code);
+    let ops = translate_code(&code);
 
-    while code_ptr < code.len() {
-        let c = code[code_ptr];
-        match c as char {
-            '>' => data_ptr += 1,
-            '<' => data_ptr -= 1,
-            '+' => data[data_ptr] += 1,
-            '-' => data[data_ptr] -= 1,
-            '.' => output(data[data_ptr]),
-            ',' => data[data_ptr] = input(),
-            '[' => {
-                if data[data_ptr] == 0 {
-                    code_ptr = jumptable[code_ptr] as usize;
+    while code_ptr < ops.len() {
+        let op = &ops[code_ptr];
+        let kind = &op.kind;
+
+        match kind {
+            &BfOpKind::IncPtr => data_ptr += op.argument as usize,
+            &BfOpKind::DecPtr => data_ptr -= op.argument as usize,
+            &BfOpKind::IncData => data[data_ptr] += op.argument as u8,
+            &BfOpKind::DecData => data[data_ptr] -= op.argument as u8,
+            &BfOpKind::ReadStdin => {
+                for _ in 0..op.argument {
+                    data[data_ptr] = input();
                 }
             },
-            ']' => {
+            &BfOpKind::WriteStdout => {
+                for _ in 0..op.argument {
+                    output(data[data_ptr]);
+                }
+            },
+            &BfOpKind::JumpIfDataZero => {
+                if data[data_ptr] == 0 {
+                    code_ptr = op.argument as usize;
+                }
+            },
+            &BfOpKind::JumpIfDataNotZero => {
                 if data[data_ptr] != 0 {
-                    code_ptr = jumptable[code_ptr] as usize;
+                    code_ptr = op.argument as usize;
                 }
             },
             _ => {},
