@@ -1,0 +1,6 @@
+[package]
+name = "brainfuck"
+version = "0.1.0"
+authors = ["Akira Moroo <retrage01@gmail.com>"]
+
+[dependencies]
