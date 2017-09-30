@@ -5,6 +5,7 @@ use std::path::Path;
 use std::io::Read;
 use std::process;
 
+#[derive(PartialEq)]
 enum BfOpKind {
     InvalidOp,
     IncPtr,
@@ -13,6 +14,9 @@ enum BfOpKind {
     DecData,
     ReadStdin,
     WriteStdout,
+    LoopSetToZero,
+    LoopMovePtr,
+    LoopMoveData,
     JumpIfDataZero,
     JumpIfDataNotZero,
 }
@@ -28,25 +32,75 @@ fn bf_op_kind_name(kind: BfOpKind) -> char {
         BfOpKind::WriteStdout => return '.',
         BfOpKind::JumpIfDataZero => return '[',
         BfOpKind::JumpIfDataNotZero => return ']',
+        BfOpKind::LoopSetToZero => return 's',
+        BfOpKind::LoopMovePtr => return 'm',
+        BfOpKind::LoopMoveData => return 'd',
         BfOpKind::InvalidOp => return 'x',
     }
 }
 
 struct BfOp {
     kind: BfOpKind,
-    argument: u64,
+    argument: i64,
+}
+
+fn optimize_loop(ops: &Vec<BfOp>, loop_start: i64) -> Vec<BfOp> {
+    let mut new_ops = Vec::new();
+
+    if ops.len() as i64 - loop_start == 2 {
+        let repeated_op = &ops[loop_start as usize + 1];
+        if repeated_op.kind == BfOpKind::IncData ||
+            repeated_op.kind == BfOpKind::DecData {
+            new_ops.push(BfOp {kind: BfOpKind::LoopSetToZero, argument: 0});
+        } else if repeated_op.kind == BfOpKind::IncPtr ||
+            repeated_op.kind == BfOpKind::DecPtr {
+            if repeated_op.kind == BfOpKind::IncPtr {
+                new_ops.push(
+                            BfOp { kind: BfOpKind::LoopMovePtr,
+                                argument: repeated_op.argument});
+            } else {
+                new_ops.push(
+                            BfOp { kind: BfOpKind::LoopMovePtr,
+                                argument: -repeated_op.argument});
+            }
+        } else if ops.len() as i64 - loop_start == 5 {
+            if ops[loop_start as usize + 1].kind == BfOpKind::DecData &&
+                ops[loop_start as usize + 3].kind == BfOpKind::IncData &&
+                ops[loop_start as usize + 1].argument == 1 &&
+                ops[loop_start as usize + 3].argument == 1 {
+                
+                if ops[loop_start as usize + 2].kind == BfOpKind::IncPtr &&
+                    ops[loop_start as usize + 4].kind == BfOpKind::DecPtr &&
+                    ops[loop_start as usize + 2].argument ==
+                    ops[loop_start as usize + 4].argument {
+                    new_ops.push(
+                        BfOp { kind: BfOpKind::LoopMoveData,
+                            argument: ops[loop_start as usize + 4].argument});    
+                } else if ops[loop_start as usize + 2].kind == BfOpKind::DecPtr &&
+                    ops[loop_start as usize + 4].kind == BfOpKind::IncPtr &&
+                    ops[loop_start as usize + 2].argument == 
+                    ops[loop_start as usize + 4].argument {
+                    new_ops.push(
+                        BfOp { kind: BfOpKind::LoopMoveData,
+                            argument: -ops[loop_start as usize + 2].argument});    
+                }
+            }
+        }
+    }
+
+    new_ops
 }
 
 fn translate_code(code: &Vec<u8>) -> Vec<BfOp> {
     let mut ptr = 0;
     let code_size = code.len();
-    let mut ops =  Vec::new();
+    let mut ops = Vec::new();
     let mut open_bracket_stack = Vec::new();
 
     while ptr < code_size {
         let instruction = code[ptr];
         if instruction == '[' as u8 {
-            open_bracket_stack.push(ops.len() as u64);
+            open_bracket_stack.push(ops.len() as i64);
             ops.push(BfOp{ kind: BfOpKind::JumpIfDataZero,
                             argument: 0 });
             ptr += 1;
@@ -58,9 +112,17 @@ fn translate_code(code: &Vec<u8>) -> Vec<BfOp> {
                     open_bracket_stack[open_bracket_stack.len()-1];
             open_bracket_stack.pop();
 
-            ops[open_bracket_offset as usize].argument = ops.len() as u64;
-            ops.push(BfOp{ kind:BfOpKind::JumpIfDataNotZero, 
-                            argument: open_bracket_offset });
+            let mut optimized_loop = optimize_loop(&ops, open_bracket_offset);
+
+            if optimized_loop.is_empty() {
+                ops[open_bracket_offset as usize].argument = ops.len() as i64;
+                ops.push(BfOp{ kind: BfOpKind::JumpIfDataNotZero,
+                                argument: open_bracket_offset});
+            } else {
+                let ops_len: usize  = ops.len() - 1;
+                ops.drain(open_bracket_offset as usize ..ops_len);
+                ops.append(&mut optimized_loop);
+            }
             ptr += 1;
         } else {
             let start = ptr;
@@ -82,7 +144,7 @@ fn translate_code(code: &Vec<u8>) -> Vec<BfOp> {
                 _ => {}
             }
 
-            ops.push(BfOp{ kind: kind, argument: num_repeats as u64 });
+            ops.push(BfOp{ kind: kind, argument: num_repeats as i64 });
         }
     }
 
@@ -143,6 +205,19 @@ fn main() {
             &BfOpKind::WriteStdout => {
                 for _ in 0..op.argument {
                     output(data[data_ptr]);
+                }
+            },
+            &BfOpKind::LoopSetToZero => data[data_ptr] = 0,
+            &BfOpKind::LoopMovePtr => {
+                while data[data_ptr] != 0 {
+                    data_ptr += op.argument as usize;
+                }
+            },
+            &BfOpKind::LoopMoveData => {
+                if data[data_ptr] != 0 {
+                    let move_to_ptr = data_ptr + op.argument as usize;
+                    data[move_to_ptr] += data[data_ptr];
+                    data[data_ptr] = 0;
                 }
             },
             &BfOpKind::JumpIfDataZero => {
