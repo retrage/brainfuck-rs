@@ -75,7 +75,7 @@ fn optimize_loop(ops: &Vec<BfOp>, loop_start: i64) -> Vec<BfOp> {
                     ops[loop_start as usize + 4].argument {
                     new_ops.push(
                         BfOp { kind: BfOpKind::LoopMoveData,
-                            argument: ops[loop_start as usize + 4].argument});    
+                            argument: ops[loop_start as usize + 2].argument});    
                 } else if ops[loop_start as usize + 2].kind == BfOpKind::DecPtr &&
                     ops[loop_start as usize + 4].kind == BfOpKind::IncPtr &&
                     ops[loop_start as usize + 2].argument == 
@@ -119,7 +119,7 @@ fn translate_code(code: &Vec<u8>) -> Vec<BfOp> {
                 ops.push(BfOp{ kind: BfOpKind::JumpIfDataNotZero,
                                 argument: open_bracket_offset});
             } else {
-                let ops_len: usize  = ops.len() - 1;
+                let ops_len: usize  = ops.len();
                 ops.drain(open_bracket_offset as usize ..ops_len);
                 ops.append(&mut optimized_loop);
             }
