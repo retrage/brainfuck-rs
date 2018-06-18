@@ -52,23 +52,19 @@ fn optimize_loop(ops: &Vec<BfOp>, loop_start: i64) -> Vec<BfOp> {
         if repeated_op.kind == BfOpKind::IncData ||
             repeated_op.kind == BfOpKind::DecData {
             new_ops.push(BfOp {kind: BfOpKind::LoopSetToZero, argument: 0});
-        } else if repeated_op.kind == BfOpKind::IncPtr ||
-            repeated_op.kind == BfOpKind::DecPtr {
-            if repeated_op.kind == BfOpKind::IncPtr {
-                new_ops.push(
-                            BfOp { kind: BfOpKind::LoopMovePtr,
-                                argument: repeated_op.argument});
-            } else {
-                new_ops.push(
-                            BfOp { kind: BfOpKind::LoopMovePtr,
-                                argument: -repeated_op.argument});
-            }
+        } else if repeated_op.kind == BfOpKind::IncPtr {
+            new_ops.push(
+                        BfOp { kind: BfOpKind::LoopMovePtr,
+                            argument: repeated_op.argument});
+        } else if repeated_op.kind == BfOpKind::DecPtr {
+            new_ops.push(
+                        BfOp { kind: BfOpKind::LoopMovePtr,
+                            argument: -repeated_op.argument});
         } else if ops.len() as i64 - loop_start == 5 {
             if ops[loop_start as usize + 1].kind == BfOpKind::DecData &&
                 ops[loop_start as usize + 3].kind == BfOpKind::IncData &&
                 ops[loop_start as usize + 1].argument == 1 &&
                 ops[loop_start as usize + 3].argument == 1 {
-                
                 if ops[loop_start as usize + 2].kind == BfOpKind::IncPtr &&
                     ops[loop_start as usize + 4].kind == BfOpKind::DecPtr &&
                     ops[loop_start as usize + 2].argument ==
@@ -120,7 +116,7 @@ fn translate_code(code: &Vec<u8>) -> Vec<BfOp> {
                                 argument: open_bracket_offset});
             } else {
                 let ops_len: usize  = ops.len();
-                ops.drain(open_bracket_offset as usize ..ops_len);
+                ops.drain(open_bracket_offset as usize..ops_len);
                 ops.append(&mut optimized_loop);
             }
             ptr += 1;
